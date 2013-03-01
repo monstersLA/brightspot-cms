@@ -339,6 +339,7 @@ public class CmsTool extends Tool {
         plugins.add(createArea2("Users & Roles", "adminUsers", "admin/adminUsers", "/admin/users.jsp"));
         plugins.add(createArea2("Variations & Profiles", "adminVariations", "admin/adminVariations", "/admin/variations.jsp"));
         plugins.add(createArea2("Workflows", "adminWorkflows", "admin/adminWorkflows", "/admin/workflows.jsp"));
+        plugins.add(createArea2("Metrics", "adminMetrics", "admin/adminMetrics", "/admin/metrics.jsp"));
 
         // Dashboard widgets.
         double dashboardColumn = 0.0;
