@@ -1,13 +1,5 @@
 package com.psddev.cms.db;
 
-import com.psddev.dari.db.ComparisonPredicate;
-import com.psddev.dari.db.CompoundPredicate;
-import com.psddev.dari.db.ObjectType;
-import com.psddev.dari.db.Predicate;
-import com.psddev.dari.db.PredicateParser;
-import com.psddev.dari.db.Query;
-import com.psddev.dari.db.Record;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -20,6 +12,16 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.codec.language.Metaphone;
+
+import com.psddev.dari.db.ComparisonPredicate;
+import com.psddev.dari.db.CompoundPredicate;
+import com.psddev.dari.db.ObjectType;
+import com.psddev.dari.db.Predicate;
+import com.psddev.dari.db.PredicateParser;
+import com.psddev.dari.db.Query;
+import com.psddev.dari.db.Record;
+import com.psddev.dari.db.Recordable;
+import com.psddev.dari.util.CollectionUtils;
 
 public class Search extends Record {
 
@@ -200,35 +202,60 @@ public class Search extends Record {
         return addTypeKeywords(boost, ObjectType.getInstance(objectClass), keywords);
     }
 
-    public SearchQuery toQuery(String searchQuery) {
+    private List<String> normalizeTerms(Object... terms) {
+        List<String> normalized = new ArrayList<String>();
+
+        for (Object term : CollectionUtils.recursiveIterable(terms)) {
+            if (term == null) {
+
+            } else if (term instanceof Recordable) {
+                normalized.add(((Recordable) term).getState().getId().toString());
+
+            } else {
+                String termString = term.toString();
+                char[] letters = termString.toCharArray();
+                int lastEnd = 0;
+
+                for (int i = 0, length = letters.length; i < length; ++ i) {
+                    char letter = letters[i];
+
+                    if (Character.isWhitespace(letter)) {
+                        int end = i;
+                        for (++ i; i < length && Character.isWhitespace(letters[i]); ) {
+                            ++ i;
+                        }
+
+                        String word = termString.substring(lastEnd, end);
+                        lastEnd = i;
+                        normalized.add(word);
+                    }
+                }
+
+                normalized.add(termString.substring(lastEnd));
+            }
+        }
+
+        return normalized;
+    }
+
+    public Search addOptionalTerms(double boost, Object... terms) {
+        OptionalTerms rule = new OptionalTerms();
+        rule.setBoost(boost);
+        rule.setTerms(new HashSet<String>(normalizeTerms(terms)));
+        return addRule(rule);
+    }
+
+    public SearchQuery toQuery(Object... terms) {
+        List<String> queryTerms = normalizeTerms(terms);
         SearchQuery query = new SearchQuery();
 
-        if (searchQuery != null && (searchQuery = searchQuery.trim()).length() > 0) {
-            char[] letters = searchQuery.toCharArray();
-            int lastEnd = 0;
-            List<String> searchWords = new ArrayList<String>();
-
-            for (int i = 0, length = letters.length; i < length; ++ i) {
-                char letter = letters[i];
-
-                if (Character.isWhitespace(letter)) {
-                    int end = i;
-                    for (++ i; i < length && Character.isWhitespace(letters[i]); ) {
-                        ++ i;
-                    }
-
-                    String word = searchQuery.substring(lastEnd, end);
-                    lastEnd = i;
-                    searchWords.add(word);
-                }
-            }
-
-            searchWords.add(searchQuery.substring(lastEnd));
-
+        if (!queryTerms.isEmpty()) {
             for (Rule rule : getRules()) {
-                rule.apply(this, query, searchQuery, searchWords);
+                rule.apply(this, query, queryTerms);
             }
-            query.and("_any matchesAll ?", searchWords);
+            if (!queryTerms.isEmpty()) {
+                query.and("_any matchesAll ?", queryTerms);
+            }
         }
 
         Set<ObjectType> allTypes = new HashSet<ObjectType>();
@@ -243,7 +270,7 @@ public class Search extends Record {
     @Embedded
     public static abstract class Rule extends Record {
 
-        public abstract void apply(Search search, SearchQuery query, String searchQuery, List<String> searchWords);
+        public abstract void apply(Search search, SearchQuery query, List<String> queryTerms);
     }
 
     public static class StopWords extends Rule {
@@ -266,11 +293,11 @@ public class Search extends Record {
         }
 
         @Override
-        public void apply(Search search, SearchQuery query, String searchQuery, List<String> searchWords) {
+        public void apply(Search search, SearchQuery query, List<String> queryTerms) {
             Set<String> stopWords = getStopWords();
             Set<String> removed = null;
 
-            for (Iterator<String> i = searchWords.iterator(); i.hasNext(); ) {
+            for (Iterator<String> i = queryTerms.iterator(); i.hasNext(); ) {
                 String word = i.next();
                 if (stopWords.contains(word)) {
                     i.remove();
@@ -313,7 +340,7 @@ public class Search extends Record {
         }
 
         @Override
-        public void apply(Search search, SearchQuery query, String searchQuery, List<String> searchWords) {
+        public void apply(Search search, SearchQuery query, List<String> queryTerms) {
             query.sortRelevant(getBoost(), "_type = ?", type.findConcreteTypes());
         }
     }
@@ -321,12 +348,12 @@ public class Search extends Record {
     public static class BoostLabels extends BoostRule {
 
         @Override
-        public void apply(Search search, SearchQuery query, String searchQuery, List<String> searchWords) {
+        public void apply(Search search, SearchQuery query, List<String> queryTerms) {
             double boost = getBoost();
             for (ObjectType type : search.getTypes()) {
                 String prefix = type.getInternalName() + "/";
                 for (String fieldName : type.getLabelFields()) {
-                    query.sortRelevant(boost, prefix + fieldName + " matchesAll ?", searchWords);
+                    query.sortRelevant(boost, prefix + fieldName + " matchesAll ?", queryTerms);
                 }
             }
         }
@@ -357,11 +384,11 @@ public class Search extends Record {
         }
 
         @Override
-        public void apply(Search search, SearchQuery query, String searchQuery, List<String> searchWords) {
+        public void apply(Search search, SearchQuery query, List<String> queryTerms) {
             double boost = getBoost();
             String prefix = getType().getInternalName() + "/";
             for (String field : getFields()) {
-                query.sortRelevant(boost, prefix + field + " matchesAll ?", searchWords);
+                query.sortRelevant(boost, prefix + field + " matchesAll ?", queryTerms);
             }
         }
     }
@@ -397,9 +424,16 @@ public class Search extends Record {
         }
 
         @Override
-        public void apply(Search search, SearchQuery query, String searchQuery, List<String> searchWords) {
+        public void apply(Search search, SearchQuery query, List<String> queryTerms) {
+            StringBuilder queryTermsString = new StringBuilder();
+
+            for (String term : queryTerms) {
+                queryTermsString.append(term);
+                queryTermsString.append(' ');
+            }
+
             Pattern pattern = Pattern.compile(getPattern(), Pattern.CANON_EQ | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-            Matcher matcher = pattern.matcher(searchQuery);
+            Matcher matcher = pattern.matcher(queryTermsString.toString());
 
             while (matcher.find()) {
                 int groupCount = matcher.groupCount();
@@ -463,10 +497,10 @@ public class Search extends Record {
         }
 
         @Override
-        public void apply(Search search, SearchQuery query, String searchQuery, List<String> searchWords) {
+        public void apply(Search search, SearchQuery query, List<String> queryTerms) {
             Set<ObjectType> types = getType().findConcreteTypes();
 
-            for (Iterator<String> i = searchWords.iterator(); i.hasNext(); ) {
+            for (Iterator<String> i = queryTerms.iterator(); i.hasNext(); ) {
                 String word = i.next();
                 String similar = findSimilar(word);
 
@@ -498,6 +532,38 @@ public class Search extends Record {
             }
 
             return null;
+        }
+    }
+
+    public static class OptionalTerms extends BoostRule {
+
+        private Set<String> terms;
+
+        public Set<String> getTerms() {
+            if (terms == null) {
+                terms = new HashSet<String>();
+            }
+            return terms;
+        }
+
+        public void setTerms(Set<String> terms) {
+            this.terms = terms;
+        }
+
+        @Override
+        public void apply(Search search, SearchQuery query, List<String> queryTerms) {
+            Set<String> terms = getTerms();
+
+            for (Iterator<String> i = queryTerms.iterator(); i.hasNext(); ) {
+                String queryTerm = i.next();
+
+                if (terms.contains(queryTerm)) {
+                    i.remove();
+                }
+            }
+
+            query.and("_any matchesAny ?", terms);
+            query.sortRelevant(getBoost(), "_any matchesAll ?", queryTerms);
         }
     }
 }
