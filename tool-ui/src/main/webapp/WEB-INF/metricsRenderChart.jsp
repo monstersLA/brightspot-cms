@@ -22,9 +22,9 @@ MetricsReport report = (MetricsReport) request.getAttribute("report");
 
 } else {%>
 
-<link type="text/css" media="screen" href="<%=wp.url("/style/nvd3/nv.d3.css")%>" rel="stylesheet">
-<script type="text/javascript" src="<%=wp.url("/script/nvd3/lib/d3.v2.js")%>"></script>
-<script type="text/javascript" src="<%=wp.url("/script/nvd3/nv.d3.js")%>"></script>
+<link type="text/css" media="screen" href="/_resource/nvd3/nv.d3.css" rel="stylesheet">
+<script type="text/javascript" src="/_resource/nvd3/lib/d3.v2.js"></script>
+<script type="text/javascript" src="/_resource/nvd3/nv.d3.js"></script>
 
     <style type="text/css">
         ${report.chartStyle}
